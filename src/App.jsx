@@ -1,198 +1,162 @@
+// src/App.jsx
 import React, { useState, useEffect } from "react";
 import { Routes, Route, Link, useNavigate } from "react-router-dom";
 import axios from "axios";
-import { auth } from "./firebase";
+import { auth, db, AVIATIONSTACK_API_KEY } from "./firebase";
 import { onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { collection, addDoc, onSnapshot, deleteDoc, doc, query, where } from "firebase/firestore";
 import CityDetails from "./CityDetails";
+import FlightBookingPage from "./FlightBookingPage";
 
 function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [cities, setCities] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [imageLoading, setImageLoading] = useState({});
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [showAuth, setShowAuth] = useState(false);
+  const [favorites, setFavorites] = useState([]);
   const navigate = useNavigate();
 
   const GEODB_API_KEY = "fa2eb75aa4msh6724d222bb40ccbp15198fjsn374de9c343aa";
   const PEXELS_API_KEY = "443Uro0KeescgFUE6urSaJ8YVjQJJlQARSJwPbDLNZTjbccRDzP4Hggd";
 
   const fallbackCities = [
-    {
-      id: "Q2643743",
-      name: "Barcelona",
-      country: "Spain",
-      population: "5.6M",
-      region: "Catalonia",
-      description: "The capital of Catalonia, Spain, known for its art, architecture, and beaches.",
-      image: "https://images.unsplash.com/photo-1505761671935-60b3a7427bad"
-    },
-    {
-      id: "Q18575",
-      name: "Tokyo",
-      country: "Japan",
-      population: "14M",
-      region: "Kanto",
-      description: "The capital of Japan, known for its modernity and rich cultural heritage.",
-      image: "https://images.unsplash.com/photo-1549693578-d683be217e58"
-    },
-    {
-      id: "Q60",
-      name: "New York",
-      country: "USA",
-      population: "8.8M",
-      region: "New York",
-      description: "The Big Apple, iconic skyline, Times Square, Broadway, and endless energy.",
-      image: "/src/assets/images/newyork.jpg"
-    },
-    {
-      id: "Q1748",
-      name: "Sydney",
-      country: "Australia",
-      population: "5.3M",
-      region: "New South Wales",
-      description: "Home to the Opera House, Harbour Bridge, and stunning beaches.",
-      image: "/src/assets/images/sydney.jpg"
-    }
+    { name: "Barcelona", country: "Spain", population: "5.6M", region: "Catalonia", image: "https://images.unsplash.com/photo-1505761671935-60b3a7427bad", latitude: 41.3851, longitude: 2.1734 },
+    { name: "Tokyo", country: "Japan", population: "14M", region: "Kanto", image: "https://images.unsplash.com/photo-1549693578-d683be217e58", latitude: 35.6762, longitude: 139.6503 },
+    { name: "New York", country: "USA", population: "8.8M", region: "New York", image: "/src/assets/images/newyork.jpg", latitude: 40.7128, longitude: -74.0060 },
+    { name: "Sydney", country: "Australia", population: "5.3M", region: "New South Wales", image: "/src/assets/images/sydney.jpg", latitude: -33.8688, longitude: 151.2093 }
   ];
 
   const fetchCityImage = async (cityName) => {
-    console.log(`Fetching image for: ${cityName}`);
-    if (!PEXELS_API_KEY || PEXELS_API_KEY === "YOUR_PEXELS_API_KEY") {
-      console.log("No Pexels API key provided");
-      return "https://via.placeholder.com/300x200?text=No+Image";
-    }
     try {
-      const response = await axios.get(
+      const res = await axios.get(
         `https://api.pexels.com/v1/search?query=${encodeURIComponent(cityName)}&per_page=1`,
-        {
-          headers: { Authorization: PEXELS_API_KEY }
-        }
+        { headers: { Authorization: PEXELS_API_KEY } }
       );
-      console.log(`Pexels response status for ${cityName}: ${response.status}`);
-      const imageUrl = response.data.photos?.[0]?.src?.medium || "https://via.placeholder.com/300x200?text=No+Image";
-      console.log(`Image URL for ${cityName}: ${imageUrl}`);
-      return imageUrl;
-    } catch (error) {
-      console.error(`Pexels fetch error for ${cityName}:`, error.response?.status, error.response?.data || error.message);
+      return res.data.photos[0]?.src.medium || "https://via.placeholder.com/300x200?text=No+Image";
+    } catch {
       return "https://via.placeholder.com/300x200?text=No+Image";
     }
   };
 
+  // Load favorites — FIXED
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    if (!user) {
+      setFavorites([]);
+      return;
+    }
+    const q = query(collection(db, "favorites"), where("userId", "==", user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const favs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setFavorites(favs);
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
+  // Search
   useEffect(() => {
     if (searchQuery.length < 2) {
-      console.log("No search query, showing fallback cities");
-      setCities(fallbackCities);
-      setImageLoading({});
+      setCities(fallbackCities.map(c => ({ ...c, isFavorite: favorites.some(f => f.name === c.name) })));
       setLoading(false);
       return;
     }
 
-    const fetchCities = async () => {
+    const timer = setTimeout(async () => {
       setLoading(true);
-      setImageLoading({});
       try {
-        console.log(`Fetching cities for query: ${searchQuery}`);
-        const response = await axios.get(
+        const res = await axios.get(
           `https://wft-geo-db.p.rapidapi.com/v1/geo/cities?limit=8&namePrefix=${encodeURIComponent(searchQuery)}`,
           {
             headers: {
               "X-RapidAPI-Key": GEODB_API_KEY,
-              "X-RapidAPI-Host": "wft-geo-db.p.rapidapi.com"
-            }
+              "X-RapidAPI-Host": "wft-geo-db.p.rapidapi.com",
+            },
           }
         );
-        console.log("GeoDB response:", response.data);
-        const apiCities = response.data.data || [];
-        console.log("Parsed cities:", apiCities);
 
-        if (apiCities.length === 0) {
-          console.log("No cities found for query:", searchQuery);
-          setCities([]);
-          alert("No cities found. Try another search!");
-          return;
-        }
-
+        const apiCities = res.data.data || [];
         const citiesWithImages = await Promise.all(
-          apiCities.map(async (city) => {
-            setImageLoading((prev) => ({ ...prev, [city.id || city.name]: true }));
-            const image = await fetchCityImage(city.name);
-            return {
-              ...city,
-              description: `${city.name} awaits your discovery!`,
-              image
-            };
-          })
+          apiCities.map(async (c) => ({
+            ...c,
+            image: await fetchCityImage(c.name),
+            isFavorite: favorites.some(f => f.name === c.name)
+          }))
         );
-
-        console.log("Cities with images:", citiesWithImages);
         setCities(citiesWithImages);
-        setImageLoading((prev) => {
-          const newLoading = { ...prev };
-          citiesWithImages.forEach((city) => {
-            newLoading[city.id || city.name] = false;
-          });
-          return newLoading;
-        });
-      } catch (error) {
-        console.error("GeoDB fetch error:", error.response?.status, error.response?.data || error.message);
+      } catch (err) {
+        console.error(err);
         setCities([]);
-        alert("Failed to fetch cities. Try another search!");
       } finally {
         setLoading(false);
       }
-    };
+    }, 500);
 
-    const timeoutId = setTimeout(fetchCities, 500);
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery]);
+    return () => clearTimeout(timer);
+  }, [searchQuery, favorites]);
+
+  // Auth
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
+    return () => unsubscribe();
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setError("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
       setShowAuth(false);
-      setError("");
-    } catch (error) {
-      setError("Failed to log in. Check your email or password.");
-      console.error("Login error:", error.message);
+    } catch (err) {
+      setError("Invalid email or password.");
     }
   };
 
   const handleSignup = async (e) => {
     e.preventDefault();
+    setError("");
     try {
       await createUserWithEmailAndPassword(auth, email, password);
       setShowAuth(false);
-      setError("");
-    } catch (error) {
-      setError("Failed to sign up. Email may be in use or password too weak.");
-      console.error("Signup error:", error.message);
+    } catch (err) {
+      setError("Signup failed. Try a stronger password.");
     }
   };
 
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      setUser(null);
-      navigate("/");
-    } catch (error) {
-      console.error("Logout error:", error.message);
+    await signOut(auth);
+    navigate("/");
+  };
+
+  const toggleFavorite = async (city) => {
+    if (!user) {
+      setShowAuth(true);
+      return;
+    }
+
+    const isFav = favorites.some(f => f.name === city.name);
+    if (isFav) {
+      const favDoc = favorites.find(f => f.name === city.name);
+      await deleteDoc(doc(db, "favorites", favDoc.id));
+    } else {
+      await addDoc(collection(db, "favorites"), {
+        userId: user.uid,
+        name: city.name,
+        country: city.country,
+        image: city.image,
+        population: city.population,
+        region: city.region,
+        latitude: city.latitude,
+        longitude: city.longitude
+      });
     }
   };
 
   return (
     <Routes>
+      {/* HOME */}
       <Route
         path="/"
         element={
@@ -201,7 +165,9 @@ function App() {
               <h1 className="text-2xl font-bold">CityExplorer</h1>
               <div className="flex items-center gap-8 text-gray-200">
                 <Link to="/" className="hover:text-white transition">Home</Link>
-                <a href="#" className="hover:text-white transition">Favorites</a>
+                <Link to="/favorites" className="hover:text-white transition">
+                  Favorites ({favorites.length})
+                </Link>
                 {user ? (
                   <button onClick={handleLogout} className="px-4 py-1 border border-gray-400 rounded-md hover:bg-white hover:text-black transition">
                     Logout
@@ -219,51 +185,21 @@ function App() {
                 <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
                   <h2 className="text-2xl font-bold mb-4">Login</h2>
                   <form onSubmit={handleLogin}>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Email"
-                      className="w-full p-2 mb-4 border rounded text-gray-900 placeholder-gray-500"
-                      required
-                    />
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Password"
-                      className="w-full p-2 mb-4 border rounded text-gray-900 placeholder-gray-500"
-                      required
-                    />
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full p-2 mb-4 border rounded text-gray-900" required />
+                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" className="w-full p-2 mb-4 border rounded text-gray-900" required />
                     {error && <p className="text-red-500 mb-4">{error}</p>}
-                    <button type="submit" className="w-full bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700 mb-2">
-                      Login
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSignup}
-                      className="w-full bg-green-600 text-white p-2 rounded hover:bg-green-700"
-                    >
-                      Sign Up
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowAuth(false)}
-                      className="w-full mt-2 text-gray-600 hover:text-gray-800"
-                    >
-                      Close
-                    </button>
+                    <button type="submit" className="w-full bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700 mb-2">Login</button>
+                    <button type="button" onClick={handleSignup} className="w-full bg-green-600 text-white p-2 rounded hover:bg-green-700">Sign Up</button>
+                    <button type="button" onClick={() => setShowAuth(false)} className="w-full mt-2 text-gray-600">Close</button>
                   </form>
                 </div>
               </div>
             )}
 
-            <main className="flex justify-center gap-12 px-12 mt10">
+            <main className="flex justify-center gap-12 px-12 mt-10">
               <div className="max-w-3xl">
                 <h2 className="text-5xl font-extrabold mb-3">Discover the World</h2>
-                <p className="text-gray-200 mb-6">
-                  Explore cities and learn interesting facts about them
-                </p>
+                <p className="text-gray-200 mb-6">Explore cities and save your favorites</p>
 
                 <div className="flex items-center bg-white rounded-full shadow-md w-full max-w-xl px-4 py-2 mb-10">
                   <input
@@ -272,21 +208,9 @@ function App() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="flex-grow text-gray-700 bg-transparent outline-none px-2"
-                    aria-label="Search for cities"
                   />
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={1.5}
-                    stroke="gray"
-                    className="w-5 h-5"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M21 21l-4.35-4.35M9.5 17A7.5 7.5 0 109.5 2a7.5 7.5 0 000 15z"
-                    />
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="gray" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M9.5 17A7.5 7.5 0 109.5 2a7.5 7.5 0 000 15z" />
                   </svg>
                 </div>
 
@@ -297,70 +221,84 @@ function App() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-6">
-                    {cities.map((city) => {
-                      const isImageLoading = imageLoading[city.id || city.name];
-                      return (
-                        <Link
-                          to={`/city/${city.id || city.name}`}
-                          key={city.id || city.name}
-                          className="bg-white text-black rounded-lg overflow-hidden shadow-md hover:scale-105 transition"
-                        >
-                          {isImageLoading ? (
-                            <div className="w-full h-40 flex items-center justify-center bg-gray-200">
-                              <div className="w-8 h-8 border-4 border-t-transparent border-gray-500 rounded-full animate-spin"></div>
-                            </div>
-                          ) : (
-                            <img
-                              src={city.image}
-                              alt={`${city.name}, ${city.country}`}
-                              className="w-full h-40 object-cover"
-                              loading="lazy"
-                            />
-                          )}
+                    {cities.map((city) => (
+                      <div key={city.name} className="bg-white text-black rounded-lg overflow-hidden shadow-md hover:scale-105 transition relative">
+                        <Link to={`/city/${encodeURIComponent(city.name)}`} className="block">
+                          <img src={city.image} alt={city.name} className="w-full h-40 object-cover" />
                           <div className="p-4">
                             <h3 className="font-bold text-lg">{city.name}, {city.country}</h3>
                             <p className="text-sm text-gray-600 mb-1">Population: {city.population?.toLocaleString() || "N/A"}</p>
                             <p className="text-sm text-gray-600 mb-1">Region: {city.region || "N/A"}</p>
-                            <p className="text-sm text-gray-600">{city.description}</p>
                           </div>
                         </Link>
-                      );
-                    })}
-                    {cities.length === 0 && searchQuery && (
-                      <p className="col-span-2 text-gray-200">No cities found. Try another search!</p>
-                    )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFavorite(city);
+                          }}
+                          className={`absolute top-2 right-2 p-2 rounded-full transition ${
+                            city.isFavorite ? "bg-yellow-400 text-black" : "bg-white/70 text-gray-700"
+                          } hover:scale-110`}
+                          aria-label={city.isFavorite ? "Remove from favorites" : "Add to favorites"}
+                        >
+                          {city.isFavorite ? "Filled Star" : "Empty Star"}
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
 
               <aside className="bg-[#1e1b4b]/70 backdrop-blur-lg rounded-xl p-6 h-fit shadow-lg w-64 mt-[180px]">
-                <h3 className="text-lg font-semibold mb-4">Trending Cities</h3>
+                <h3 className="text-lg font-semibold mb-4">Trending</h3>
                 <ul className="space-y-2 text-gray-200 mb-8">
                   <li>Barcelona</li>
                   <li>Tokyo</li>
                   <li>New York</li>
                   <li>Sydney</li>
-                  <li>Rio de Janeiro</li>
                 </ul>
-
-                <div>
-                  <h3 className="text-lg font-semibold mb-2">Sign Up</h3>
-                  <p className="text-gray-300 text-sm mb-3">
-                    Create an account to save your favorite cities
-                  </p>
-                  <button
-                    onClick={() => setShowAuth(true)}
-                    className="bg-indigo-600 px-4 py-2 rounded-md hover:bg-indigo-700 transition"
-                  >
-                    Sign Up
-                  </button>
-                </div>
+                <button onClick={() => setShowAuth(true)} className="bg-indigo-600 px-4 py-2 rounded-md hover:bg-indigo-700 w-full">
+                  Sign Up
+                </button>
               </aside>
             </main>
           </div>
         }
       />
-      <Route path="/city/:id" element={<CityDetails />} />
+
+      <Route path="/city/:name" element={<CityDetails />} />
+
+      <Route
+        path="/favorites"
+        element={
+          <div className="min-h-screen text-white bg-gradient-to-br from-[#0f172a] to-[#312e81] p-12">
+            <h1 className="text-4xl font-bold mb-8">Your Favorite Cities</h1>
+            {favorites.length === 0 ? (
+              <p className="text-gray-300">No favorites yet. Start exploring!</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-6">
+                {favorites.map((fav) => (
+                  <div key={fav.id} className="bg-white text-black rounded-lg overflow-hidden shadow-md">
+                    <img src={fav.image} alt={fav.name} className="w-full h-40 object-cover" />
+                    <div className="p-4">
+                      <h3 className="font-bold text-lg">{fav.name}, {fav.country}</h3>
+                      <p className="text-sm text-gray-600">Population: {fav.population?.toLocaleString()}</p>
+                      <Link
+                        to={`/book-flights/${encodeURIComponent(fav.name)}`}
+                        className="block mt-3 bg-blue-600 text-white text-center p-2 rounded hover:bg-blue-700 transition"
+                      >
+                        Book Flight
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        }
+      />
+
+      <Route path="/book-flights/:cityName" element={<FlightBookingPage />} />
     </Routes>
   );
 }
