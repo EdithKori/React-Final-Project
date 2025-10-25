@@ -1,7 +1,6 @@
 // src/FlightBookingPage.jsx
 import { useParams, Link } from "react-router-dom";
 import { useState, useEffect } from "react";
-import axios from "axios";
 import { AVIATIONSTACK_API_KEY } from "./firebase";
 
 function FlightBookingPage() {
@@ -13,10 +12,11 @@ function FlightBookingPage() {
   useEffect(() => {
     const fetchFlights = async () => {
       try {
-        const res = await axios.get(
+        const res = await fetch(
           `http://api.aviationstack.com/v1/flights?access_key=${AVIATIONSTACK_API_KEY}&arr_city=${encodeURIComponent(cityName)}&limit=10`
         );
-        setFlights(res.data.data || []);
+        const data = await res.json();
+        setFlights(data.data || []);
       } catch (err) {
         console.error("Flight error:", err);
         setFlights([]);
@@ -30,10 +30,7 @@ function FlightBookingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f172a] to-[#312e81] text-white p-12">
       <div className="max-w-6xl mx-auto">
-        <Link
-          to="/"
-          className="inline-block mb-6 px-6 py-2 bg-indigo-600 rounded-lg hover:bg-indigo-700 transition"
-        >
+        <Link to="/" className="inline-block mb-6 px-6 py-2 bg-indigo-600 rounded-lg hover:bg-indigo-700 transition">
           Back to Home
         </Link>
 

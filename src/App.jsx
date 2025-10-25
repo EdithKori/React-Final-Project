@@ -1,7 +1,6 @@
 // src/App.jsx
 import React, { useState, useEffect } from "react";
 import { Routes, Route, Link, useNavigate } from "react-router-dom";
-import axios from "axios";
 import { auth, db, AVIATIONSTACK_API_KEY } from "./firebase";
 import { onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 import { collection, addDoc, onSnapshot, deleteDoc, doc, query, where } from "firebase/firestore";
@@ -32,17 +31,18 @@ function App() {
 
   const fetchCityImage = async (cityName) => {
     try {
-      const res = await axios.get(
+      const res = await fetch(
         `https://api.pexels.com/v1/search?query=${encodeURIComponent(cityName)}&per_page=1`,
         { headers: { Authorization: PEXELS_API_KEY } }
       );
-      return res.data.photos[0]?.src.medium || "https://via.placeholder.com/300x200?text=No+Image";
+      const data = await res.json();
+      return data.photos[0]?.src.medium || "https://via.placeholder.com/300x200?text=No+Image";
     } catch {
       return "https://via.placeholder.com/300x200?text=No+Image";
     }
   };
 
-  // Load favorites — FIXED
+  // Load favorites
   useEffect(() => {
     if (!user) {
       setFavorites([]);
@@ -67,7 +67,7 @@ function App() {
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await axios.get(
+        const res = await fetch(
           `https://wft-geo-db.p.rapidapi.com/v1/geo/cities?limit=8&namePrefix=${encodeURIComponent(searchQuery)}`,
           {
             headers: {
@@ -76,8 +76,9 @@ function App() {
             },
           }
         );
+        const data = await res.json();
+        const apiCities = data.data || [];
 
-        const apiCities = res.data.data || [];
         const citiesWithImages = await Promise.all(
           apiCities.map(async (c) => ({
             ...c,
@@ -241,7 +242,15 @@ function App() {
                           } hover:scale-110`}
                           aria-label={city.isFavorite ? "Remove from favorites" : "Add to favorites"}
                         >
-                          {city.isFavorite ? "Filled Star" : "Empty Star"}
+                          {city.isFavorite ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                              <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.974 2.89a1 1 0 00-.364 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.89a1 1 0 00-1.176 0l-3.976 2.89c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.364-1.118l-3.976-2.89c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
+                            </svg>
+                          ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.974 2.89a1 1 0 00-.364 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.89a1 1 0 00-1.176 0l-3.976 2.89c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.364-1.118l-3.976-2.89c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
+                            </svg>
+                          )}
                         </button>
                       </div>
                     ))}
@@ -267,37 +276,32 @@ function App() {
       />
 
       <Route path="/city/:name" element={<CityDetails />} />
-
-      <Route
-        path="/favorites"
-        element={
-          <div className="min-h-screen text-white bg-gradient-to-br from-[#0f172a] to-[#312e81] p-12">
-            <h1 className="text-4xl font-bold mb-8">Your Favorite Cities</h1>
-            {favorites.length === 0 ? (
-              <p className="text-gray-300">No favorites yet. Start exploring!</p>
-            ) : (
-              <div className="grid grid-cols-3 gap-6">
-                {favorites.map((fav) => (
-                  <div key={fav.id} className="bg-white text-black rounded-lg overflow-hidden shadow-md">
-                    <img src={fav.image} alt={fav.name} className="w-full h-40 object-cover" />
-                    <div className="p-4">
-                      <h3 className="font-bold text-lg">{fav.name}, {fav.country}</h3>
-                      <p className="text-sm text-gray-600">Population: {fav.population?.toLocaleString()}</p>
-                      <Link
-                        to={`/book-flights/${encodeURIComponent(fav.name)}`}
-                        className="block mt-3 bg-blue-600 text-white text-center p-2 rounded hover:bg-blue-700 transition"
-                      >
-                        Book Flight
-                      </Link>
-                    </div>
+      <Route path="/favorites" element={
+        <div className="min-h-screen text-white bg-gradient-to-br from-[#0f172a] to-[#312e81] p-12">
+          <h1 className="text-4xl font-bold mb-8">Your Favorite Cities</h1>
+          {favorites.length === 0 ? (
+            <p className="text-gray-300">No favorites yet. Start exploring!</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-6">
+              {favorites.map((fav) => (
+                <div key={fav.id} className="bg-white text-black rounded-lg overflow-hidden shadow-md">
+                  <img src={fav.image} alt={fav.name} className="w-full h-40 object-cover" />
+                  <div className="p-4">
+                    <h3 className="font-bold text-lg">{fav.name}, {fav.country}</h3>
+                    <p className="text-sm text-gray-600">Population: {fav.population?.toLocaleString()}</p>
+                    <Link
+                      to={`/book-flights/${encodeURIComponent(fav.name)}`}
+                      className="block mt-3 bg-blue-600 text-white text-center p-2 rounded hover:bg-blue-700 transition"
+                    >
+                      Book Flight
+                    </Link>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        }
-      />
-
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      } />
       <Route path="/book-flights/:cityName" element={<FlightBookingPage />} />
     </Routes>
   );
