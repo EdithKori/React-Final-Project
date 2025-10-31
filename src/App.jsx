@@ -1,4 +1,4 @@
-// src/App.jsx
+// src/App.jsx 
 import React, { useState, useEffect } from "react";
 import { Routes, Route, useNavigate } from "react-router-dom";
 import { auth, db } from "./firebase";
@@ -96,7 +96,7 @@ function App() {
     if (!user) {
       setFavorites([]);
       return;
- Você    }
+    }
     const q = query(collection(db, "favorites"), where("userId", "==", user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const favs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -214,7 +214,7 @@ function App() {
     }
   };
 
-  // Combine all known cities (fallback + search results)
+
   const allKnownCities = [
     ...fallbackCities,
     ...cities.filter((c) => !fallbackCities.some((f) => f.name === c.name)),
@@ -250,6 +250,7 @@ function App() {
                 handleSignup={handleSignup}
                 toggleFavorite={toggleFavorite}
                 onLoginClick={() => setShowAuth(true)}
+                favorites={favorites}
               />
             }
           />
@@ -257,9 +258,15 @@ function App() {
             path="/city/:name"
             element={<CityDetails cities={allKnownCities} />}
           />
+         
           <Route
             path="/favorites"
-            element={<FavoritesPage favorites={favorites} />}
+            element={
+              <FavoritesPage
+                favorites={favorites}
+                onToggleFavorite={toggleFavorite}
+              />
+            }
           />
           <Route path="/book-flights/:cityName" element={<FlightBookingPage />} />
         </Routes>
