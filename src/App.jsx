@@ -1,4 +1,4 @@
-// src/App.jsx 
+// src/App.jsx
 import React, { useState, useEffect } from "react";
 import { Routes, Route, useNavigate } from "react-router-dom";
 import { auth, db } from "./firebase";
@@ -13,7 +13,6 @@ import {
   addDoc,
   onSnapshot,
   deleteDoc,
-  doc,
   query,
   where,
 } from "firebase/firestore";
@@ -76,6 +75,7 @@ function App() {
   const [error, setError] = useState("");
   const [showAuth, setShowAuth] = useState(false);
   const [favorites, setFavorites] = useState([]);
+  const [favoritesLoading, setFavoritesLoading] = useState(true);
   const navigate = useNavigate();
 
   const fetchCityImage = async (cityName) => {
@@ -91,29 +91,58 @@ function App() {
     }
   };
 
-  // Load favorites
+  // Load cached favorites from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("cachedFavorites");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setFavorites(parsed);
+      } catch (e) {
+        console.error("Cache parse error", e);
+      }
+    }
+  }, []);
+
+  // Firestore sync
   useEffect(() => {
     if (!user) {
-      setFavorites([]);
+      setFavoritesLoading(false);
       return;
     }
+
+    setFavoritesLoading(true);
     const q = query(collection(db, "favorites"), where("userId", "==", user.uid));
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const favs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setFavorites(favs);
+      const firestoreFavs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+      setFavorites((prevFavorites) => {
+        const merged = [
+          ...prevFavorites,
+          ...firestoreFavs.filter(
+            (f) => !prevFavorites.some((local) => local.name === f.name)
+          ),
+        ];
+        localStorage.setItem("cachedFavorites", JSON.stringify(merged));
+        return merged;
+      });
+
+      setFavoritesLoading(false);
     });
+
     return () => unsubscribe();
   }, [user]);
+
+  // Keep localStorage in sync whenever favorites change
+  useEffect(() => {
+    localStorage.setItem("cachedFavorites", JSON.stringify(favorites));
+  }, [favorites]);
 
   // Search
   useEffect(() => {
     if (searchQuery.length < 2) {
-      setCities(
-        fallbackCities.map((c) => ({
-          ...c,
-          isFavorite: favorites.some((f) => f.name === c.name),
-        }))
-      );
+      setCities(fallbackCities.map((c) => ({ ...c })));
       setLoading(false);
       return;
     }
@@ -142,7 +171,6 @@ function App() {
             latitude: c.latitude,
             longitude: c.longitude,
             image: await fetchCityImage(c.city || c.name),
-            isFavorite: favorites.some((f) => f.name === (c.city || c.name)),
           }))
         );
         setCities(citiesWithImages);
@@ -155,9 +183,9 @@ function App() {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, favorites]);
+  }, [searchQuery]);
 
-  // Auth
+  // Auth listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
     return () => unsubscribe();
@@ -169,7 +197,7 @@ function App() {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       setShowAuth(false);
-    } catch (err) {
+    } catch {
       setError("Invalid email or password.");
     }
   };
@@ -180,13 +208,15 @@ function App() {
     try {
       await createUserWithEmailAndPassword(auth, email, password);
       setShowAuth(false);
-    } catch (err) {
+    } catch {
       setError("Signup failed. Try a stronger password.");
     }
   };
 
   const handleLogout = async () => {
     await signOut(auth);
+    setFavorites([]);
+    localStorage.removeItem("cachedFavorites");
     navigate("/");
   };
 
@@ -196,24 +226,42 @@ function App() {
       return;
     }
 
-    const isFav = favorites.some((f) => f.name === city.name);
-    if (isFav) {
-      const favDoc = favorites.find((f) => f.name === city.name);
-      await deleteDoc(doc(db, "favorites", favDoc.id));
-    } else {
-      await addDoc(collection(db, "favorites"), {
-        userId: user.uid,
-        name: city.name,
-        country: city.country,
-        image: city.image,
-        population: city.population,
-        region: city.region,
-        latitude: city.latitude,
-        longitude: city.longitude,
+    const currentlyFav = favorites.some((f) => f.name === city.name);
+
+    setFavorites((prev) => {
+      if (currentlyFav) return prev.filter((f) => f.name !== city.name);
+      return [...prev, { ...city, id: "temp-optimistic" }];
+    });
+
+    try {
+      if (currentlyFav) {
+        const docToDelete = favorites.find((f) => f.name === city.name);
+        if (docToDelete?.id && docToDelete.id !== "temp-optimistic") {
+          await deleteDoc(doc(db, "favorites", docToDelete.id));
+        }
+      } else {
+        await addDoc(collection(db, "favorites"), {
+          userId: user.uid,
+          name: city.name,
+          country: city.country,
+          image: city.image,
+          population: city.population,
+          region: city.region,
+          latitude: city.latitude,
+          longitude: city.longitude,
+        });
+      }
+    } catch (err) {
+      console.error("Failed to sync favorite", err);
+      setFavorites((prev) => {
+        const wasFav = prev.some((f) => f.name === city.name);
+        if (wasFav === currentlyFav) return prev;
+        return currentlyFav
+          ? [...prev, { ...city, id: "temp-optimistic" }]
+          : prev.filter((f) => f.name !== city.name);
       });
     }
   };
-
 
   const allKnownCities = [
     ...fallbackCities,
@@ -251,6 +299,7 @@ function App() {
                 toggleFavorite={toggleFavorite}
                 onLoginClick={() => setShowAuth(true)}
                 favorites={favorites}
+                favoritesLoading={favoritesLoading}
               />
             }
           />
@@ -258,13 +307,13 @@ function App() {
             path="/city/:name"
             element={<CityDetails cities={allKnownCities} />}
           />
-         
           <Route
             path="/favorites"
             element={
               <FavoritesPage
                 favorites={favorites}
                 onToggleFavorite={toggleFavorite}
+                favoritesLoading={favoritesLoading}
               />
             }
           />

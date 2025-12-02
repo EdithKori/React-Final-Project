@@ -2,7 +2,7 @@
 import { Link } from "react-router-dom";
 import CityCard from "../components/CityCard";
 
-function FavoritesPage({ favorites, onToggleFavorite }) {
+function FavoritesPage({ favorites, onToggleFavorite, favoritesLoading }) {
   return (
     <div className="min-h-screen px-4 sm:px-6 lg:px-12 py-8 lg:py-12">
       <div className="max-w-7xl mx-auto">
@@ -10,7 +10,11 @@ function FavoritesPage({ favorites, onToggleFavorite }) {
           Your Favorite Cities
         </h1>
 
-        {favorites.length === 0 ? (
+        {favoritesLoading ? (
+          <div className="text-center py-12">
+            <p className="text-gray-300">Loading favorites...</p>
+          </div>
+        ) : favorites.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-300 mb-6 text-base sm:text-lg">
               No favorites yet. Start exploring!
@@ -25,13 +29,12 @@ function FavoritesPage({ favorites, onToggleFavorite }) {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
             {favorites.map((fav) => (
-              <div key={fav.id} className="h-full">
+              <div key={fav.name} className="h-full">
                 <CityCard
-                  city={{
-                    ...fav,
-                    isFavorite: true
-                  }}
+                  city={fav}
                   onToggleFavorite={onToggleFavorite}
+                  favorites={favorites}
+                  favoritesLoading={favoritesLoading}
                 />
                 <Link
                   to={`/book-flights/${encodeURIComponent(fav.name)}`}

@@ -1,16 +1,23 @@
-// src/components/CityCard.jsx 
+// src/components/CityCard.jsx
 import { Link } from "react-router-dom";
 
-function CityCard({ city, onToggleFavorite }) {
-  const isFavorite = city.isFavorite;
+function CityCard({ city, onToggleFavorite, favorites, favoritesLoading }) {
+  const isFavorite = favorites.some((f) => f.name === city.name);
+
+  const buttonClass = `
+    absolute top-3 right-3 p-2.5 rounded-full transition-all duration-200 
+    backdrop-blur-sm shadow-md z-10
+    hover:scale-110 active:scale-95
+    ${isFavorite 
+      ? "bg-yellow-400 text-black hover:bg-yellow-500" 
+      : "bg-white/90 text-gray-700 hover:bg-white"
+    }
+    ${favoritesLoading && !isFavorite ? "animate-pulse" : ""}
+  `;
 
   return (
     <div className="bg-white text-black rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 group flex flex-col h-full relative">
-     
-      <Link
-        to={`/city/${encodeURIComponent(city.name)}`}
-        className="block flex-grow"
-      >
+      <Link to={`/city/${encodeURIComponent(city.name)}`} className="block flex-grow">
         <div className="relative overflow-hidden">
           <img
             src={city.image || "https://via.placeholder.com/300x200?text=No+Image"}
@@ -18,7 +25,6 @@ function CityCard({ city, onToggleFavorite }) {
             className="w-full h-40 sm:h-48 md:h-56 object-cover group-hover:scale-105 transition-transform duration-300"
           />
         </div>
-
         <div className="p-3 sm:p-4 md:p-5">
           <h3 className="font-bold text-base sm:text-lg md:text-xl line-clamp-1">
             {city.name}, {city.country}
@@ -32,18 +38,13 @@ function CityCard({ city, onToggleFavorite }) {
         </div>
       </Link>
 
-      {/* STAR BUTTON — ALWAYS VISIBLE */}
       <button
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
           onToggleFavorite(city);
         }}
-        className={`absolute top-3 right-3 p-2.5 rounded-full transition-all duration-200 backdrop-blur-sm shadow-md z-10
-          ${isFavorite
-            ? "bg-yellow-400 text-black hover:bg-yellow-500"
-            : "bg-white/90 text-gray-700 hover:bg-white"
-          } hover:scale-110 active:scale-95`}
+        className={buttonClass}
         aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
       >
         {isFavorite ? (

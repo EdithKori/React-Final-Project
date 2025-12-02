@@ -12,7 +12,7 @@ function HomePage({
   email, setEmail, password, setPassword, error,
   handleLogin, handleSignup,
   toggleFavorite, onLoginClick,
-  favorites
+  favorites, favoritesLoading
 }) {
   return (
     <div className="min-h-screen">
@@ -37,6 +37,7 @@ function HomePage({
                 cities={cities}
                 onToggleFavorite={toggleFavorite}
                 favorites={favorites}
+                favoritesLoading={favoritesLoading}
               />
             )}
           </div>
